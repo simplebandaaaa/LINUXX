@@ -2,30 +2,18 @@
 #!/bin/bash
 set -e
 
-echo "================================"
-echo "       WINUX 11 DESKTOP"
-echo "================================"
+PORT="${PORT:-3389}"
 
-# Start D-Bus system service
-mkdir -p /run/dbus
-
-if ! pgrep -x dbus-daemon >/dev/null 2>&1; then
-    dbus-daemon --system --fork
-fi
-
-# Prepare XRDP
-mkdir -p /run/xrdp
+mkdir -p /run/dbus /run/xrdp
 chown xrdp:xrdp /run/xrdp
 
-# Ensure certificate permissions
-adduser xrdp ssl-cert >/dev/null 2>&1 || true
+dbus-daemon --system --fork
 
-# Start XRDP session manager
+# Configure XRDP
+sed -i "s/^port=.*/port=0.0.0.0:${PORT}/" /etc/xrdp/xrdp.ini
+
+# Start session manager
 /usr/sbin/xrdp-sesman
 
-echo "XRDP Session Manager started"
-
-# Start XRDP server in foreground
-echo "Starting Remote Desktop on port 3389"
-
+# Start XRDP
 exec /usr/sbin/xrdp --nodaemon
