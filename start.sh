@@ -1,16 +1,14 @@
 #!/bin/bash
 set -e
 
-PORT="${PORT:-3389}"
-
+# Create required directories
 mkdir -p /run/dbus /run/xrdp
 chown xrdp:xrdp /run/xrdp
 
 # Start DBus
-dbus-daemon --system --fork
-
-# Configure XRDP port
-sed -i "s/^port=.*/port=0.0.0.0:${PORT}/" /etc/xrdp/xrdp.ini
+if ! pgrep -x dbus-daemon >/dev/null 2>&1; then
+    dbus-daemon --system --fork
+fi
 
 # Start XRDP session manager
 /usr/sbin/xrdp-sesman
