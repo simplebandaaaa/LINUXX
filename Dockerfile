@@ -1,9 +1,10 @@
+
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Kolkata
 
-# Install desktop and remote desktop packages
+# Install XFCE, XRDP and Xorg dependencies
 RUN dpkg --add-architecture i386 && \
     apt-get update && \
     apt-get install -y \
@@ -15,9 +16,11 @@ RUN dpkg --add-architecture i386 && \
     xrdp \
     xorgxrdp \
     xserver-xorg-core \
+    xauth \
+    x11-xserver-utils \
+    xfonts-base \
     dbus \
     dbus-x11 \
-    dbus-user-session \
     sudo \
     curl \
     wget \
@@ -27,12 +30,10 @@ RUN dpkg --add-architecture i386 && \
     wine32:i386 \
     fonts-liberation \
     fonts-noto \
-    x11-xserver-utils \
-    xterm \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Configure Ubuntu user
+# Configure ubuntu user
 RUN if ! id ubuntu >/dev/null 2>&1; then \
         useradd -m -s /bin/bash ubuntu; \
     fi && \
@@ -40,7 +41,9 @@ RUN if ! id ubuntu >/dev/null 2>&1; then \
     echo "ubuntu:ubuntu" | chpasswd && \
     usermod -aG sudo ubuntu && \
     printf 'ubuntu ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/ubuntu && \
-    chmod 0440 /etc/sudoers.d/ubuntu
+    chmod 0440 /etc/sudoers.d/ubuntu && \
+    mkdir -p /home/ubuntu && \
+    chown -R ubuntu:ubuntu /home/ubuntu
 
 # Install Windows 11 GTK theme
 RUN git clone --depth 1 \
@@ -50,15 +53,6 @@ RUN git clone --depth 1 \
     ./install.sh -d /usr/share/themes -n Win11 -c light -s standard --tweaks solid && \
     rm -rf /tmp/Win11-gtk-theme
 
-# Configure XRDP startup
-RUN printf '%s\n' \
-    '#!/bin/sh' \
-    'if [ -r /etc/profile ]; then . /etc/profile; fi' \
-    'if [ -r "$HOME/.profile" ]; then . "$HOME/.profile"; fi' \
-    'exec /etc/X11/Xsession' \
-    > /etc/xrdp/startwm.sh && \
-    chmod +x /etc/xrdp/startwm.sh
-
 # Configure XFCE session
 RUN printf '%s\n' \
     '#!/bin/sh' \
@@ -66,16 +60,15 @@ RUN printf '%s\n' \
     'unset XDG_RUNTIME_DIR' \
     'exec dbus-launch --exit-with-session startxfce4' \
     > /home/ubuntu/.xsession && \
-    chown ubuntu:ubuntu /home/ubuntu/.xsession && \
-    chmod +x /home/ubuntu/.xsession
+    chmod +x /home/ubuntu/.xsession && \
+    chown ubuntu:ubuntu /home/ubuntu/.xsession
 
-# Configure XRDP port
-RUN sed -i 's/^port=.*/port=3389/' /etc/xrdp/xrdp.ini && \
-    adduser xrdp ssl-cert && \
-    chown -R ubuntu:ubuntu /home/ubuntu
+# Keep the standard XRDP startup script
+RUN adduser xrdp ssl-cert && \
+    sed -i 's/^port=.*/port=3389/' /etc/xrdp/xrdp.ini
 
+# Copy startup script
 COPY start.sh /start.sh
-
 RUN chmod +x /start.sh
 
 EXPOSE 3389
