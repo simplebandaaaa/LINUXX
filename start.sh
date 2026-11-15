@@ -6,13 +6,14 @@ PORT="${PORT:-3389}"
 mkdir -p /run/dbus /run/xrdp
 chown xrdp:xrdp /run/xrdp
 
+# Start DBus
 dbus-daemon --system --fork
 
-# Configure XRDP
+# Configure XRDP port
 sed -i "s/^port=.*/port=0.0.0.0:${PORT}/" /etc/xrdp/xrdp.ini
 
-# Start session manager
+# Start XRDP session manager
 /usr/sbin/xrdp-sesman
 
-# Start XRDP
+# Start XRDP server
 exec /usr/sbin/xrdp --nodaemon
