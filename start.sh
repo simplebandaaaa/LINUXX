@@ -1,14 +1,13 @@
+
 #!/bin/bash
 set -e
 
-# Create required directories
+# Create runtime directories
 mkdir -p /run/dbus /run/xrdp
 chown xrdp:xrdp /run/xrdp
 
-# Start DBus
-if ! pgrep -x dbus-daemon >/dev/null 2>&1; then
-    dbus-daemon --system --fork
-fi
+# Start system DBus
+dbus-daemon --system --fork
 
 # Start XRDP session manager
 /usr/sbin/xrdp-sesman
