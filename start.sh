@@ -1,16 +1,15 @@
+#!/usr/bin/env bash
 
-#!/bin/bash
-set -e
+echo "=== Starting XRDP Server on Railway ==="
 
-# Create runtime directories
-mkdir -p /run/dbus /run/xrdp
-chown xrdp:xrdp /run/xrdp
+# Railway ka port variable read karein (default 3389 agar railway port na de)
+PORT="${PORT:-3389}"
 
-# Start system DBus
-dbus-daemon --system --fork
+# XRDP configuration mein port adjust kar sakte hain ya default 3389 use karein
+echo "RDP Service is starting..."
 
-# Start XRDP session manager
-/usr/sbin/xrdp-sesman
+# Background mein xrdp start karein
+service xrdp start
 
-# Start XRDP server
-exec /usr/sbin/xrdp --nodaemon
+# Container ko live rakhne ke liye
+tail -f /var/log/xrdp.log
