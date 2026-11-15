@@ -2,19 +2,23 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:10
 
-# Enable Wine 32-bit support
+# Enable 32-bit architecture for Wine
 RUN dpkg --add-architecture i386
 
-# Firefox Mozilla PPA
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install Mozilla Firefox repository
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     software-properties-common \
     gnupg2 && \
-    add-apt-repository -y ppa:mozillateam/ppa && \
-    printf 'Package: firefox*\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' \
+    add-apt-repository -y ppa:mozillateam/ppa
+
+# Firefox package priority
+RUN printf 'Package: firefox*\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' \
     > /etc/apt/preferences.d/mozilla-firefox
 
-# Install desktop and required packages
+# Install Desktop and applications
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xrdp \
     xorgxrdp \
@@ -22,11 +26,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xfce4 \
     xfce4-panel \
     xfce4-whiskermenu-plugin \
-    xfwm4 \
-    xfce4-settings \
     xfce4-session \
+    xfce4-settings \
     xfce4-terminal \
     xfdesktop4 \
+    xfwm4 \
     dbus-x11 \
     dbus-user-session \
     sudo \
@@ -42,11 +46,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ssl-cert \
     wine \
     wine32:i386 \
-    firefox && \
+    firefox \
+    procps \
+    x11-xserver-utils && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Windows 11 GTK Theme
+# Install Windows 11 GTK theme
 RUN git clone --depth 1 \
     https://github.com/yeyushengfan258/Win11-gtk-theme.git \
     /tmp/Win11-gtk-theme && \
@@ -55,17 +61,22 @@ RUN git clone --depth 1 \
     ./install.sh \
     -d /usr/share/themes \
     -n Win11 \
-    -t default \
     -c light \
     -s standard \
     --tweaks solid && \
     rm -rf /tmp/Win11-gtk-theme
 
-# Create user
-RUN useradd -m -s /bin/bash ubuntu && \
+# Setup ubuntu user (safe if already exists)
+RUN if ! id ubuntu >/dev/null 2>&1; then \
+        useradd -m -s /bin/bash ubuntu; \
+    fi && \
+    mkdir -p /home/ubuntu && \
+    usermod -d /home/ubuntu -s /bin/bash ubuntu && \
     echo "ubuntu:ubuntu" | chpasswd && \
     usermod -aG sudo ubuntu && \
-    echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+    printf 'ubuntu ALL=(ALL) NOPASSWD:ALL\n' \
+    > /etc/sudoers.d/ubuntu && \
+    chmod 0440 /etc/sudoers.d/ubuntu
 
 # Xorg configuration
 RUN mkdir -p /etc/X11 && \
@@ -73,33 +84,30 @@ RUN mkdir -p /etc/X11 && \
     > /etc/X11/Xwrapper.config
 
 # XRDP configuration
-RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
-    sed -i 's/security_layer=negotiate/security_layer=rdp/' /etc/xrdp/xrdp.ini && \
-    sed -i 's/max_bpp=32/max_bpp=16/' /etc/xrdp/xrdp.ini && \
-    sed -i 's/#tcp_send_buffer_size=32768/tcp_send_buffer_size=131072/' /etc/xrdp/xrdp.ini && \
-    adduser xrdp ssl-cert
+RUN adduser xrdp ssl-cert && \
+    mkdir -p /run/xrdp && \
+    chown xrdp:xrdp /run/xrdp
 
 # Disable XFCE compositing
 RUN mkdir -p /home/ubuntu/.config/xfce4/xfconf/xfce-perchannel-xml && \
     printf '<?xml version="1.0" encoding="UTF-8"?>\n<channel name="xfwm4" version="1.0"><property name="general" type="empty"><property name="use_compositing" type="bool" value="false"/></property></channel>' \
     > /home/ubuntu/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml
 
-# XFCE session
-RUN printf '#!/bin/bash\n\
+# Configure Win11 appearance
+RUN mkdir -p /home/ubuntu/.config/xfce4 && \
+    printf '#!/bin/bash\n\
 export XDG_CURRENT_DESKTOP=XFCE\n\
 export XDG_SESSION_DESKTOP=xfce\n\
 unset DBUS_SESSION_BUS_ADDRESS\n\
-unset XDG_RUNTIME_DIR\n\
-xfconf-query -c xsettings -p /Net/ThemeName -s Win11 || true\n\
-xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus || true\n\
-xfconf-query -c xfwm4 -p /general/theme -s Win11 || true\n\
-exec startxfce4\n' > /home/ubuntu/.xsession && \
+exec dbus-launch --exit-with-session startxfce4\n' \
+    > /home/ubuntu/.xsession && \
     chmod +x /home/ubuntu/.xsession && \
     cp /home/ubuntu/.xsession /home/ubuntu/.xsessionrc && \
     chown -R ubuntu:ubuntu /home/ubuntu
 
-# Copy startup script
+# Startup script
 COPY start.sh /start.sh
+
 RUN chmod +x /start.sh
 
 EXPOSE 3389
