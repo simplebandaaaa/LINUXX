@@ -1,15 +1,33 @@
-#!/usr/bin/env bash
+#!/bin/bash
+set -e
 
-echo "=== Starting XRDP Server on Railway ==="
+# ---- Password: Railway Variables mein RDP_PASSWORD set karo ---- #
+if [ -z "${RDP_PASSWORD}" ]; then
+  RDP_PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)"
+  echo "=============================================================="
+  echo "RDP_PASSWORD set nahi tha. Is baar ka random password:"
+  echo "  user: ubuntu   password: ${RDP_PASSWORD}"
+  echo "Pakka password rakhne ke liye Railway Variables mein RDP_PASSWORD daalo."
+  echo "=============================================================="
+fi
+echo "ubuntu:${RDP_PASSWORD}" | chpasswd
 
-# Railway ka port variable read karein (default 3389 agar railway port na de)
-PORT="${PORT:-3389}"
+# ---- Volume /home/ubuntu par mount ho to pehli baar defaults copy karo ---- #
+if [ ! -e /home/ubuntu/.xsession ]; then
+  cp -a /opt/ubuntu-home-defaults/. /home/ubuntu/
+fi
+chown ubuntu:ubuntu /home/ubuntu
 
-# XRDP configuration mein port adjust kar sakte hain ya default 3389 use karein
-echo "RDP Service is starting..."
+# ---- /dev/shm 256 MB (Firefox ke liye). Railway mein permission na mile to chup-chaap skip ---- #
+mount -t tmpfs -o size=256m tmpfs /dev/shm 2>/dev/null || true
 
-# Background mein xrdp start karein
-service xrdp start
+# ---- Purane pid files hatao (restart pe xrdp start na hone ki problem) ---- #
+mkdir -p /run/xrdp /var/run/dbus
+rm -f /run/xrdp/*.pid /var/run/dbus/pid
 
-# Container ko live rakhne ke liye
-tail -f /var/log/xrdp.log
+# ---- System dbus ---- #
+dbus-daemon --system --fork || true
+
+# ---- xrdp (foreground mein, taaki container chalta rahe) ---- #
+xrdp-sesman
+exec xrdp --nodaemon
