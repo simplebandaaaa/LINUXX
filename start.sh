@@ -1,29 +1,44 @@
+
 #!/bin/bash
 set -e
 
-# ---- Password: Railway Variables mein RDP_PASSWORD set karoge to wahi chalega, warna ye default ---- #
+# ---- Password ----
 RDP_PASSWORD="${RDP_PASSWORD:-umeshedittz123}"
 echo "ubuntu:${RDP_PASSWORD}" | chpasswd
 
-# ---- Volume /home/ubuntu par mount ho to pehli baar defaults copy karo ---- #
+# ---- Volume defaults ----
 if [ ! -e /home/ubuntu/.xsession ]; then
-  cp -a /opt/ubuntu-home-defaults/. /home/ubuntu/
+    cp -a /opt/ubuntu-home-defaults/. /home/ubuntu/
 fi
-chown ubuntu:ubuntu /home/ubuntu
 
-# ---- /dev/shm 256 MB (Firefox ke liye). Railway mein permission na mile to chup-chaap skip ---- #
+chown -R ubuntu:ubuntu /home/ubuntu
+
+# ---- Permanent wallpaper autostart ----
+mkdir -p /etc/xdg/autostart
+
+cat > /etc/xdg/autostart/umesheditz-wallpaper.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Umesh Editz Wallpaper
+Exec=/usr/local/bin/set-wallpaper.sh
+OnlyShowIn=XFCE;
+Terminal=false
+Hidden=false
+EOF
+
+# ---- /dev/shm ----
 mount -t tmpfs -o size=256m tmpfs /dev/shm 2>/dev/null || true
 
-# ---- Memory guard (Firefox ko desktop se pehle qurbaan karta hai) ---- #
+# ---- Memory guard ----
 /usr/local/bin/mem-guard.sh &
 
-# ---- Purane pid files hatao (restart pe xrdp start na hone ki problem) ---- #
+# ---- Clean old PID files ----
 mkdir -p /run/xrdp /var/run/dbus
 rm -f /run/xrdp/*.pid /var/run/dbus/pid
 
-# ---- System dbus ---- #
+# ---- System DBus ----
 dbus-daemon --system --fork || true
 
-# ---- xrdp (foreground mein, taaki container chalta rahe) ---- #
+# ---- XRDP ----
 xrdp-sesman
 exec xrdp --nodaemon
