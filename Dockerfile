@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         dbus-x11 \
         dbus-user-session \
         sudo \
+        procps \
         git \
         ssl-cert \
         firefox \
@@ -45,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
 
 # ---- Wine (optional, WITH_WINE=1 par) ---- #
-RUN if [ "$WITH_WINE" = "0" ]; then \
+RUN if [ "$WITH_WINE" = "1" ]; then \
         dpkg --add-architecture i386 && \
         apt-get update && \
         apt-get install -y --no-install-recommends wine wine32:i386 ; \
@@ -80,23 +81,136 @@ RUN rm -f /etc/xdg/autostart/*print* /etc/xdg/autostart/*blueman* \
           /etc/xdg/autostart/*geoclue* /etc/xdg/autostart/*at-spi* \
           /etc/xdg/autostart/*notifyd* /etc/xdg/autostart/*xfce4-clipman* || true
 
-# ---- Firefox lean settings: 1 content process, disk cache off, chhota memory cache ---- #
-RUN mkdir -p /usr/lib/firefox/browser/defaults/preferences && \
-    printf '%s\n' \
-      'pref("dom.ipc.processCount", 1);' \
-      'pref("browser.cache.disk.enable", false);' \
-      'pref("browser.cache.memory.enable", true);' \
-      'pref("browser.cache.memory.capacity", 32768);' \
-      'pref("browser.sessionhistory.max_total_viewers", 0);' \
-      'pref("browser.tabs.unloadOnLowMemory", true);' \
-      'pref("browser.startup.homepage", "about:blank");' \
-      'pref("browser.newtabpage.enabled", false);' \
-      'pref("media.autoplay.default", 5);' \
-      'pref("layers.acceleration.disabled", true);' \
-      'pref("toolkit.telemetry.enabled", false);' \
-      'pref("datareporting.healthreport.uploadEnabled", false);' \
-      'pref("extensions.pocket.enabled", false);' \
-      > /usr/lib/firefox/browser/defaults/preferences/lean.js
+# ---- Firefox: smooth + crash-resistant setup ---- #
+RUN <<'EOF'
+set -e
+mkdir -p /usr/lib/firefox/browser/defaults/preferences
+
+# --- 1) Prefs: kam processes, kam memory, kam animation (RDP par smooth), crash ke baad tabs wapas ---
+cat > /usr/lib/firefox/browser/defaults/preferences/lean.js <<'JS'
+// --- Processes kam (har process = extra RAM) ---
+pref("browser.preferences.defaultPerformanceSettings.enabled", false);
+pref("dom.ipc.processCount", 1);
+pref("dom.ipc.processCount.webIsolated", 1);
+pref("dom.ipc.processPrelaunch.fission.number", 0);
+pref("browser.tabs.remote.separatePrivilegedContentProcess", false);
+pref("browser.tabs.remote.separatePrivilegedMozillaWebContentProcess", false);
+pref("media.rdd-process.enabled", false);
+pref("media.utility-process.enabled", false);
+pref("layers.gpu-process.enabled", false);
+
+// --- Memory limit ---
+pref("browser.cache.disk.enable", false);
+pref("browser.cache.memory.enable", true);
+pref("browser.cache.memory.capacity", 16384);
+pref("browser.sessionhistory.max_total_viewers", 0);
+pref("browser.tabs.unloadOnLowMemory", true);
+pref("javascript.options.mem.high_water_mark", 32);
+pref("image.mem.surfacecache.max_size_kb", 65536);
+pref("image.mem.max_decoded_image_kb", 51200);
+pref("webgl.disabled", true);
+pref("gfx.canvas.accelerated", false);
+pref("layers.acceleration.disabled", true);
+pref("gfx.webrender.software", true);
+pref("media.hardware-video-decoding.enabled", false);
+pref("media.autoplay.default", 5);
+
+// --- Crash/kill ke baad tabs wapas, lekin ek-ek karke (ek saath load hone se RAM fatti hai) ---
+pref("browser.startup.page", 3);
+pref("browser.sessionstore.resume_from_crash", true);
+pref("browser.sessionstore.restore_on_demand", true);
+pref("browser.sessionstore.restore_pinned_tabs_on_demand", true);
+pref("browser.sessionstore.interval", 15000);
+pref("browser.sessionstore.max_tabs_undo", 3);
+pref("browser.sessionstore.max_windows_undo", 1);
+pref("browser.tabs.warnOnClose", false);
+
+// --- RDP par smooth: kam frames, animation band ---
+pref("layout.frame_rate", 30);
+pref("general.smoothScroll", false);
+pref("browser.tabs.animate", false);
+pref("browser.fullscreen.animate", false);
+pref("toolkit.cosmeticAnimations.enabled", false);
+pref("ui.prefersReducedMotion", 1);
+pref("browser.tabs.inTitlebar", 0);
+
+// --- Background kaam band ---
+pref("browser.startup.homepage", "about:blank");
+pref("browser.newtabpage.enabled", false);
+pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
+pref("browser.newtabpage.activity-stream.feeds.topsites", false);
+pref("browser.discovery.enabled", false);
+pref("app.update.auto", false);
+pref("app.normandy.enabled", false);
+pref("toolkit.telemetry.enabled", false);
+pref("datareporting.healthreport.uploadEnabled", false);
+pref("extensions.pocket.enabled", false);
+pref("dom.webnotifications.enabled", false);
+pref("dom.push.enabled", false);
+pref("network.prefetch-next", false);
+pref("network.dns.disablePrefetch", true);
+pref("network.predictor.enabled", false);
+JS
+
+# --- 2) /usr/local/bin/firefox: PATH mein pehle aata hai, to saare launchers (panel, Start menu) ise chalate hain.
+#        Normal close (exit 0) pe band; crash/kill pe 3 sec baad khud relaunch (tabs session-restore se wapas) ---
+cat > /usr/local/bin/firefox <<'SH'
+#!/bin/bash
+export MOZ_DISABLE_CONTENT_SANDBOX=1
+FF=/usr/bin/firefox
+tries=0
+t0=$(date +%s)
+while true; do
+  "$FF" "$@"
+  rc=$?
+  [ "$rc" -eq 0 ] && exit 0
+  now=$(date +%s)
+  if [ $((now - t0)) -gt 300 ]; then tries=0; t0=$now; fi
+  tries=$((tries + 1))
+  [ "$tries" -ge 5 ] && exit "$rc"
+  sleep 3
+  set --
+done
+SH
+
+# --- 3) mem-guard: RAM 90% ke upar jaye to sabse bhari TAB process band karta hai (tab "crashed" dikhega, Reload karo),
+#        taaki poora Firefox / desktop OOM killer ke haath na mare. Tab processes ko OOM killer ka pehla target bhi banata hai ---
+cat > /usr/local/bin/mem-guard.sh <<'SH'
+#!/bin/bash
+get_mem() {
+  LIMIT=""; USED=""
+  if [ -r /sys/fs/cgroup/memory.max ] && [ -r /sys/fs/cgroup/memory.stat ]; then
+    LIMIT=$(cat /sys/fs/cgroup/memory.max)
+    USED=$(awk '$1=="anon"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory.stat)
+  elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ] && [ -r /sys/fs/cgroup/memory/memory.stat ]; then
+    LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+    USED=$(awk '$1=="rss"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory/memory.stat)
+  fi
+}
+last=0
+while true; do
+  for pid in $(pgrep -f -- '-contentproc.* tab$' 2>/dev/null); do
+    echo 900 > /proc/$pid/oom_score_adj 2>/dev/null || true
+  done
+  get_mem
+  if [[ "$LIMIT" =~ ^[0-9]+$ ]] && [ "$LIMIT" -gt 0 ] && [ "$LIMIT" -lt 100000000000 ] && [[ "$USED" =~ ^[0-9]+$ ]]; then
+    pct=$(( USED * 100 / LIMIT ))
+    now=$(date +%s)
+    if [ "$pct" -ge 90 ] && [ $((now - last)) -ge 10 ]; then
+      victim=$(ps -eo pid=,rss=,args= | awk '/-contentproc/ && / tab$/ {print $2, $1}' | sort -nr | head -1 | awk '{print $2}')
+      if [ -n "$victim" ]; then
+        kill -9 "$victim" 2>/dev/null || true
+        last=$now
+        echo "[mem-guard] memory ${pct}% - tab process $victim band kiya"
+      fi
+    fi
+  fi
+  sleep 3
+done
+SH
+
+chmod +x /usr/local/bin/firefox /usr/local/bin/mem-guard.sh
+EOF
 
 # ---- Windows 11 look: theme + icons (repo URLs build se pehle ek baar check kar lena) ---- #
 RUN git clone --depth=1 https://github.com/B00merang-Project/Windows-10 /usr/share/themes/Windows-10 && \
