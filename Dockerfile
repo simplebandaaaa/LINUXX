@@ -1,8 +1,5 @@
 
 # syntax=docker/dockerfile:1
-# Lightweight Windows 11 look XFCE desktop over XRDP
-# Railway Free plan - 0.5 GB RAM optimized
-
 FROM ubuntu:24.04
 
 ARG WITH_WINE=1
@@ -20,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     printf 'Package: firefox*\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' \
     > /etc/apt/preferences.d/mozilla-firefox
 
-# ---- XFCE + XRDP + Essential packages ----
+# ---- XFCE Desktop + XRDP ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xrdp \
     xorgxrdp \
@@ -59,16 +56,16 @@ RUN if [ "$WITH_WINE" = "1" ]; then \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
 
-# ---- Ubuntu user ----
+# ---- Ubuntu User ----
 RUN usermod -aG sudo ubuntu && \
     echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu && \
     chmod 0440 /etc/sudoers.d/ubuntu
 
-# ---- Xorg permission ----
+# ---- Xorg Permission ----
 RUN printf 'allowed_users=anybody\nneeds_root_rights=no\n' \
     > /etc/X11/Xwrapper.config
 
-# ---- XRDP low memory settings ----
+# ---- XRDP Optimization ----
 RUN sed -i 's/^max_bpp=.*/max_bpp=16/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^#tcp_send_buffer_size=.*/tcp_send_buffer_size=131072/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^MaxSessions=.*/MaxSessions=2/' /etc/xrdp/sesman.ini && \
@@ -76,7 +73,7 @@ RUN sed -i 's/^max_bpp=.*/max_bpp=16/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^DisconnectedTimeLimit=.*/DisconnectedTimeLimit=300/' /etc/xrdp/sesman.ini && \
     adduser xrdp ssl-cert
 
-# ---- Disable unnecessary autostart applications ----
+# ---- Remove Unnecessary Autostart Apps ----
 RUN rm -f /etc/xdg/autostart/*print* \
     /etc/xdg/autostart/*blueman* \
     /etc/xdg/autostart/*screensaver* \
@@ -88,19 +85,13 @@ RUN rm -f /etc/xdg/autostart/*print* \
     /etc/xdg/autostart/*notifyd* \
     /etc/xdg/autostart/*xfce4-clipman* || true
 
-# ---- Firefox optimization ----
-RUN <<'EOF'
-set -e
-
-mkdir -p /usr/lib/firefox/browser/defaults/preferences
-
-cat > /usr/lib/firefox/browser/defaults/preferences/lean.js <<'JS'
+# ---- Firefox Optimization ----
+RUN mkdir -p /usr/lib/firefox/browser/defaults/preferences && \
+    cat > /usr/lib/firefox/browser/defaults/preferences/lean.js <<'JS'
 pref("browser.preferences.defaultPerformanceSettings.enabled", false);
 pref("dom.ipc.processCount", 1);
 pref("dom.ipc.processCount.webIsolated", 1);
 pref("dom.ipc.processPrelaunch.fission.number", 0);
-pref("browser.tabs.remote.separatePrivilegedContentProcess", false);
-pref("browser.tabs.remote.separatePrivilegedMozillaWebContentProcess", false);
 pref("media.rdd-process.enabled", false);
 pref("media.utility-process.enabled", false);
 pref("layers.gpu-process.enabled", false);
@@ -113,6 +104,7 @@ pref("browser.tabs.unloadOnLowMemory", true);
 pref("javascript.options.mem.high_water_mark", 32);
 pref("image.mem.surfacecache.max_size_kb", 65536);
 pref("image.mem.max_decoded_image_kb", 51200);
+
 pref("webgl.disabled", true);
 pref("gfx.canvas.accelerated", false);
 pref("layers.acceleration.disabled", true);
@@ -127,7 +119,6 @@ pref("browser.sessionstore.restore_pinned_tabs_on_demand", true);
 pref("browser.sessionstore.interval", 15000);
 pref("browser.sessionstore.max_tabs_undo", 3);
 pref("browser.sessionstore.max_windows_undo", 1);
-pref("browser.tabs.warnOnClose", false);
 
 pref("layout.frame_rate", 30);
 pref("general.smoothScroll", false);
@@ -135,12 +126,9 @@ pref("browser.tabs.animate", false);
 pref("browser.fullscreen.animate", false);
 pref("toolkit.cosmeticAnimations.enabled", false);
 pref("ui.prefersReducedMotion", 1);
-pref("browser.tabs.inTitlebar", 0);
 
 pref("browser.startup.homepage", "about:blank");
 pref("browser.newtabpage.enabled", false);
-pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
-pref("browser.newtabpage.activity-stream.feeds.topsites", false);
 pref("browser.discovery.enabled", false);
 pref("app.update.auto", false);
 pref("app.normandy.enabled", false);
@@ -154,7 +142,8 @@ pref("network.dns.disablePrefetch", true);
 pref("network.predictor.enabled", false);
 JS
 
-cat > /usr/local/bin/firefox <<'SH'
+# ---- Firefox Crash Recovery Wrapper ----
+RUN cat > /usr/local/bin/firefox <<'SH'
 #!/bin/bash
 export MOZ_DISABLE_CONTENT_SANDBOX=1
 FF=/usr/bin/firefox
@@ -168,12 +157,12 @@ while true; do
     [ "$rc" -eq 0 ] && exit 0
 
     now=$(date +%s)
-    if [ $((now - t0)) -gt 300 ]; then
+    if [ $((now-t0)) -gt 300 ]; then
         tries=0
         t0=$now
     fi
 
-    tries=$((tries + 1))
+    tries=$((tries+1))
     [ "$tries" -ge 5 ] && exit "$rc"
 
     sleep 3
@@ -181,40 +170,36 @@ while true; do
 done
 SH
 
-cat > /usr/local/bin/mem-guard.sh <<'SH'
+# ---- RAM Memory Guard ----
+RUN cat > /usr/local/bin/mem-guard.sh <<'SH'
 #!/bin/bash
-
-get_mem() {
-    LIMIT=""
-    USED=""
-
-    if [ -r /sys/fs/cgroup/memory.max ] && [ -r /sys/fs/cgroup/memory.stat ]; then
-        LIMIT=$(cat /sys/fs/cgroup/memory.max)
-        USED=$(awk '$1=="anon"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory.stat)
-    elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ] && [ -r /sys/fs/cgroup/memory/memory.stat ]; then
-        LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
-        USED=$(awk '$1=="rss"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory/memory.stat)
-    fi
-}
 
 last=0
 
 while true; do
-    for pid in $(pgrep -f -- '-contentproc.* tab$' 2>/dev/null); do
-        echo 900 > /proc/$pid/oom_score_adj 2>/dev/null || true
-    done
+    LIMIT=""
+    USED=""
 
-    get_mem
+    if [ -r /sys/fs/cgroup/memory.max ]; then
+        LIMIT=$(cat /sys/fs/cgroup/memory.max)
+        USED=$(awk '$1=="anon"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory.stat)
+    elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+        LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+        USED=$(awk '$1=="rss"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory/memory.stat)
+    fi
 
     if [[ "$LIMIT" =~ ^[0-9]+$ ]] && \
-       [ "$LIMIT" -gt 0 ] && \
-       [ "$LIMIT" -lt 100000000000 ] && \
-       [[ "$USED" =~ ^[0-9]+$ ]]; then
+       [[ "$USED" =~ ^[0-9]+$ ]] && \
+       [ "$LIMIT" -gt 0 ] && [ "$LIMIT" -lt 100000000000 ]; then
 
-        pct=$((USED * 100 / LIMIT))
+        pct=$((USED*100/LIMIT))
         now=$(date +%s)
 
-        if [ "$pct" -ge 90 ] && [ $((now - last)) -ge 10 ]; then
+        for pid in $(pgrep -f -- '-contentproc.* tab$' 2>/dev/null); do
+            echo 900 > /proc/$pid/oom_score_adj 2>/dev/null || true
+        done
+
+        if [ "$pct" -ge 90 ] && [ $((now-last)) -ge 10 ]; then
             victim=$(ps -eo pid=,rss=,args= | \
                 awk '/-contentproc/ && / tab$/ {print $2, $1}' | \
                 sort -nr | head -1 | awk '{print $2}')
@@ -222,7 +207,7 @@ while true; do
             if [ -n "$victim" ]; then
                 kill -9 "$victim" 2>/dev/null || true
                 last=$now
-                echo "[mem-guard] memory ${pct}% - tab process $victim killed"
+                echo "[mem-guard] Memory ${pct}% - tab $victim killed"
             fi
         fi
     fi
@@ -231,18 +216,21 @@ while true; do
 done
 SH
 
-chmod +x /usr/local/bin/firefox /usr/local/bin/mem-guard.sh
-EOF
+RUN chmod +x /usr/local/bin/firefox /usr/local/bin/mem-guard.sh
 
-# ---- Windows theme and icons ----
-RUN git clone --depth=1 https://github.com/B00merang-Project/Windows-10 \
+# ---- Windows 11 Theme and Icons ----
+RUN git clone --depth=1 \
+    https://github.com/B00merang-Project/Windows-10 \
     /usr/share/themes/Windows-10 && \
-    git clone --depth=1 https://github.com/yeyushengfan258/Win11-icon-theme \
+    git clone --depth=1 \
+    https://github.com/yeyushengfan258/Win11-icon-theme \
     /tmp/win11-icons && \
     /tmp/win11-icons/install.sh -d /usr/share/icons && \
     rm -rf /tmp/win11-icons /usr/share/themes/Windows-10/.git
 
 # ---- Permanent Umesh Editz Wallpaper ----
+RUN mkdir -p /usr/share/backgrounds
+
 COPY ["Umesh Editz Crowned Channel Logo.png", "/usr/share/backgrounds/umesheditz-wallpaper.png"]
 
 RUN cat > /usr/local/bin/set-wallpaper.sh <<'SH'
@@ -258,7 +246,7 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-# Apply wallpaper to all detected monitors/workspaces
+# Apply wallpaper to available XFCE workspaces
 PROPS=$(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$' || true)
 
 if [ -n "$PROPS" ]; then
@@ -272,7 +260,6 @@ if [ -n "$PROPS" ]; then
             -p "$base/image-style" --create -t int -s 5
     done <<< "$PROPS"
 else
-    # Default XFCE Xorg monitor
     xfconf-query -c xfce4-desktop \
         -p /backdrop/screen0/monitor0/workspace0/last-image \
         --create -t string -s "$WALL"
@@ -287,7 +274,7 @@ SH
 
 RUN chmod +x /usr/local/bin/set-wallpaper.sh
 
-# ---- XFCE configuration ----
+# ---- XFCE Desktop Configuration ----
 RUN <<'EOF'
 set -e
 
@@ -299,7 +286,7 @@ mkdir -p "$XML" \
     "$CFG/panel/launcher-3" \
     "$CFG/panel/launcher-4"
 
-# Theme, icons, font and cursor
+# Theme and icons
 cat > "$XML/xsettings.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xsettings" version="1.0">
@@ -332,7 +319,7 @@ cat > "$XML/xfwm4.xml" <<'XML'
 </channel>
 XML
 
-# Windows-style bottom taskbar
+# Bottom taskbar
 cat > "$XML/xfce4-panel.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-panel" version="1.0">
@@ -398,7 +385,6 @@ cp /usr/share/applications/thunar.desktop "$CFG/panel/launcher-2/"
 cp /usr/share/applications/firefox.desktop "$CFG/panel/launcher-3/"
 cp /usr/share/applications/xfce4-terminal.desktop "$CFG/panel/launcher-4/"
 
-# Start menu
 printf 'button-icon=start-here\nshow-button-title=false\n' \
     > "$CFG/panel/whiskermenu-1.rc"
 
@@ -413,14 +399,30 @@ chmod +x /home/ubuntu/.xsession
 
 chown -R ubuntu:ubuntu /home/ubuntu
 
-# Save default home configuration
+# Save default home
 cp -a /home/ubuntu /opt/ubuntu-home-defaults
 EOF
 
-# ---- Copy startup script ----
+# ---- Wallpaper autostart ----
+RUN mkdir -p /etc/xdg/autostart && \
+    cat > /etc/xdg/autostart/umesheditz-wallpaper.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Umesh Editz Wallpaper
+Exec=/usr/local/bin/set-wallpaper.sh
+OnlyShowIn=XFCE;
+Terminal=false
+Hidden=false
+EOF
+
+# ---- Startup Script ----
 COPY start.sh /start.sh
-RUN chmod +x /start.sh
+
+# Fix CRLF and permissions
+RUN sed -i 's/\r$//' /start.sh && \
+    chmod 755 /start.sh
 
 EXPOSE 3389
 
-CMD ["/start.sh"]
+# IMPORTANT: Run using Bash to prevent Exec format error
+CMD ["/bin/bash", "/start.sh"]
