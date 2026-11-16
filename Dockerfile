@@ -1,72 +1,74 @@
+
 # syntax=docker/dockerfile:1
-# Lightweight Win11-look XFCE desktop over xrdp - Railway Free plan (0.5 GB RAM) ke hisaab se
+# Lightweight Windows 11 look XFCE desktop over XRDP
+# Railway Free plan - 0.5 GB RAM optimized
+
 FROM ubuntu:24.04
 
-# Wine nahi chahiye to Railway Variables mein WITH_WINE=0 set karo (image aur chhoti, RAM bhi bachti)
 ARG WITH_WINE=1
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     NO_AT_BRIDGE=1 \
-    GTK_A11Y=none
+    GTK_A11Y=none \
+    MALLOC_ARENA_MAX=2
 
-# ---- Firefox (snap nahi, real deb) Mozilla PPA se ---- #
+# ---- Firefox Mozilla PPA ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        software-properties-common gnupg2 ca-certificates && \
+    software-properties-common gnupg2 ca-certificates && \
     add-apt-repository -y ppa:mozillateam/ppa && \
     printf 'Package: firefox*\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' \
-        > /etc/apt/preferences.d/mozilla-firefox
+    > /etc/apt/preferences.d/mozilla-firefox
 
-# ---- Lean package list: XFCE ke sirf zaroori parts, koi extra plugin/app nahi ---- #
+# ---- XFCE + XRDP + Essential packages ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        xrdp \
-        xorgxrdp \
-        xserver-xorg-core \
-        xfce4-session \
-        xfwm4 \
-        xfce4-panel \
-        xfdesktop4 \
-        xfce4-settings \
-        xfce4-terminal \
-        xfce4-whiskermenu-plugin \
-        thunar \
-        dbus-x11 \
-        dbus-user-session \
-        sudo \
-        procps \
-        git \
-        ssl-cert \
-        firefox \
-        fonts-noto-core \
-        fonts-inter \
-        gtk2-engines-murrine \
-        gnome-themes-extra \
-        adwaita-icon-theme \
-        dmz-cursor-theme && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
+    xrdp \
+    xorgxrdp \
+    xserver-xorg-core \
+    xfce4-session \
+    xfwm4 \
+    xfce4-panel \
+    xfdesktop4 \
+    xfce4-settings \
+    xfce4-terminal \
+    xfce4-whiskermenu-plugin \
+    thunar \
+    dbus-x11 \
+    dbus-user-session \
+    sudo \
+    procps \
+    git \
+    ssl-cert \
+    firefox \
+    fonts-noto-core \
+    fonts-inter \
+    gtk2-engines-murrine \
+    gnome-themes-extra \
+    adwaita-icon-theme \
+    dmz-cursor-theme \
+    xfconf && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
 
-# ---- Wine (optional, WITH_WINE=1 par) ---- #
+# ---- Optional Wine ----
 RUN if [ "$WITH_WINE" = "1" ]; then \
-        dpkg --add-architecture i386 && \
-        apt-get update && \
-        apt-get install -y --no-install-recommends wine wine32:i386 ; \
+    dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends wine wine32:i386; \
     fi && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
 
-# ---- User setup ---- #
-# ubuntu:24.04 mein "ubuntu" user pehle se hota hai (uid 1000)
-# Password image mein nahi hai, start.sh RDP_PASSWORD env variable se set karta hai.
+# ---- Ubuntu user ----
 RUN usermod -aG sudo ubuntu && \
     echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu && \
     chmod 0440 /etc/sudoers.d/ubuntu
 
-# ---- Rootless Xorg permission ---- #
-RUN printf 'allowed_users=anybody\nneeds_root_rights=no\n' > /etc/X11/Xwrapper.config
+# ---- Xorg permission ----
+RUN printf 'allowed_users=anybody\nneeds_root_rights=no\n' \
+    > /etc/X11/Xwrapper.config
 
-# ---- xrdp tuning: kam RAM, kam bandwidth ---- #
-# max_bpp=16: kam bandwidth (Railway egress paise leta hai). Behtar colours chahiye to 32 kar do.
-# KillDisconnected: disconnect ke 5 min baad session band, RAM free ho jaati hai.
-# Encryption default (strong) hi rakha hai, kyunki port public internet par hai.
+# ---- XRDP low memory settings ----
 RUN sed -i 's/^max_bpp=.*/max_bpp=16/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^#tcp_send_buffer_size=.*/tcp_send_buffer_size=131072/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^MaxSessions=.*/MaxSessions=2/' /etc/xrdp/sesman.ini && \
@@ -74,21 +76,25 @@ RUN sed -i 's/^max_bpp=.*/max_bpp=16/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^DisconnectedTimeLimit=.*/DisconnectedTimeLimit=300/' /etc/xrdp/sesman.ini && \
     adduser xrdp ssl-cert
 
-# ---- Bekaar autostart apps hatao (RAM bachti hai) ---- #
-RUN rm -f /etc/xdg/autostart/*print* /etc/xdg/autostart/*blueman* \
-          /etc/xdg/autostart/*screensaver* /etc/xdg/autostart/*power-manager* \
-          /etc/xdg/autostart/*nm-applet* /etc/xdg/autostart/*pulse* \
-          /etc/xdg/autostart/*geoclue* /etc/xdg/autostart/*at-spi* \
-          /etc/xdg/autostart/*notifyd* /etc/xdg/autostart/*xfce4-clipman* || true
+# ---- Disable unnecessary autostart applications ----
+RUN rm -f /etc/xdg/autostart/*print* \
+    /etc/xdg/autostart/*blueman* \
+    /etc/xdg/autostart/*screensaver* \
+    /etc/xdg/autostart/*power-manager* \
+    /etc/xdg/autostart/*nm-applet* \
+    /etc/xdg/autostart/*pulse* \
+    /etc/xdg/autostart/*geoclue* \
+    /etc/xdg/autostart/*at-spi* \
+    /etc/xdg/autostart/*notifyd* \
+    /etc/xdg/autostart/*xfce4-clipman* || true
 
-# ---- Firefox: smooth + crash-resistant setup ---- #
+# ---- Firefox optimization ----
 RUN <<'EOF'
 set -e
+
 mkdir -p /usr/lib/firefox/browser/defaults/preferences
 
-# --- 1) Prefs: kam processes, kam memory, kam animation (RDP par smooth), crash ke baad tabs wapas ---
 cat > /usr/lib/firefox/browser/defaults/preferences/lean.js <<'JS'
-// --- Processes kam (har process = extra RAM) ---
 pref("browser.preferences.defaultPerformanceSettings.enabled", false);
 pref("dom.ipc.processCount", 1);
 pref("dom.ipc.processCount.webIsolated", 1);
@@ -99,7 +105,6 @@ pref("media.rdd-process.enabled", false);
 pref("media.utility-process.enabled", false);
 pref("layers.gpu-process.enabled", false);
 
-// --- Memory limit ---
 pref("browser.cache.disk.enable", false);
 pref("browser.cache.memory.enable", true);
 pref("browser.cache.memory.capacity", 16384);
@@ -115,7 +120,6 @@ pref("gfx.webrender.software", true);
 pref("media.hardware-video-decoding.enabled", false);
 pref("media.autoplay.default", 5);
 
-// --- Crash/kill ke baad tabs wapas, lekin ek-ek karke (ek saath load hone se RAM fatti hai) ---
 pref("browser.startup.page", 3);
 pref("browser.sessionstore.resume_from_crash", true);
 pref("browser.sessionstore.restore_on_demand", true);
@@ -125,7 +129,6 @@ pref("browser.sessionstore.max_tabs_undo", 3);
 pref("browser.sessionstore.max_windows_undo", 1);
 pref("browser.tabs.warnOnClose", false);
 
-// --- RDP par smooth: kam frames, animation band ---
 pref("layout.frame_rate", 30);
 pref("general.smoothScroll", false);
 pref("browser.tabs.animate", false);
@@ -134,7 +137,6 @@ pref("toolkit.cosmeticAnimations.enabled", false);
 pref("ui.prefersReducedMotion", 1);
 pref("browser.tabs.inTitlebar", 0);
 
-// --- Background kaam band ---
 pref("browser.startup.homepage", "about:blank");
 pref("browser.newtabpage.enabled", false);
 pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
@@ -152,80 +154,152 @@ pref("network.dns.disablePrefetch", true);
 pref("network.predictor.enabled", false);
 JS
 
-# --- 2) /usr/local/bin/firefox: PATH mein pehle aata hai, to saare launchers (panel, Start menu) ise chalate hain.
-#        Normal close (exit 0) pe band; crash/kill pe 3 sec baad khud relaunch (tabs session-restore se wapas) ---
 cat > /usr/local/bin/firefox <<'SH'
 #!/bin/bash
 export MOZ_DISABLE_CONTENT_SANDBOX=1
 FF=/usr/bin/firefox
 tries=0
 t0=$(date +%s)
+
 while true; do
-  "$FF" "$@"
-  rc=$?
-  [ "$rc" -eq 0 ] && exit 0
-  now=$(date +%s)
-  if [ $((now - t0)) -gt 300 ]; then tries=0; t0=$now; fi
-  tries=$((tries + 1))
-  [ "$tries" -ge 5 ] && exit "$rc"
-  sleep 3
-  set --
+    "$FF" "$@"
+    rc=$?
+
+    [ "$rc" -eq 0 ] && exit 0
+
+    now=$(date +%s)
+    if [ $((now - t0)) -gt 300 ]; then
+        tries=0
+        t0=$now
+    fi
+
+    tries=$((tries + 1))
+    [ "$tries" -ge 5 ] && exit "$rc"
+
+    sleep 3
+    set --
 done
 SH
 
-# --- 3) mem-guard: RAM 90% ke upar jaye to sabse bhari TAB process band karta hai (tab "crashed" dikhega, Reload karo),
-#        taaki poora Firefox / desktop OOM killer ke haath na mare. Tab processes ko OOM killer ka pehla target bhi banata hai ---
 cat > /usr/local/bin/mem-guard.sh <<'SH'
 #!/bin/bash
+
 get_mem() {
-  LIMIT=""; USED=""
-  if [ -r /sys/fs/cgroup/memory.max ] && [ -r /sys/fs/cgroup/memory.stat ]; then
-    LIMIT=$(cat /sys/fs/cgroup/memory.max)
-    USED=$(awk '$1=="anon"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory.stat)
-  elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ] && [ -r /sys/fs/cgroup/memory/memory.stat ]; then
-    LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
-    USED=$(awk '$1=="rss"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory/memory.stat)
-  fi
-}
-last=0
-while true; do
-  for pid in $(pgrep -f -- '-contentproc.* tab$' 2>/dev/null); do
-    echo 900 > /proc/$pid/oom_score_adj 2>/dev/null || true
-  done
-  get_mem
-  if [[ "$LIMIT" =~ ^[0-9]+$ ]] && [ "$LIMIT" -gt 0 ] && [ "$LIMIT" -lt 100000000000 ] && [[ "$USED" =~ ^[0-9]+$ ]]; then
-    pct=$(( USED * 100 / LIMIT ))
-    now=$(date +%s)
-    if [ "$pct" -ge 90 ] && [ $((now - last)) -ge 10 ]; then
-      victim=$(ps -eo pid=,rss=,args= | awk '/-contentproc/ && / tab$/ {print $2, $1}' | sort -nr | head -1 | awk '{print $2}')
-      if [ -n "$victim" ]; then
-        kill -9 "$victim" 2>/dev/null || true
-        last=$now
-        echo "[mem-guard] memory ${pct}% - tab process $victim band kiya"
-      fi
+    LIMIT=""
+    USED=""
+
+    if [ -r /sys/fs/cgroup/memory.max ] && [ -r /sys/fs/cgroup/memory.stat ]; then
+        LIMIT=$(cat /sys/fs/cgroup/memory.max)
+        USED=$(awk '$1=="anon"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory.stat)
+    elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ] && [ -r /sys/fs/cgroup/memory/memory.stat ]; then
+        LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+        USED=$(awk '$1=="rss"||$1=="shmem"{s+=$2} END{print s+0}' /sys/fs/cgroup/memory/memory.stat)
     fi
-  fi
-  sleep 3
+}
+
+last=0
+
+while true; do
+    for pid in $(pgrep -f -- '-contentproc.* tab$' 2>/dev/null); do
+        echo 900 > /proc/$pid/oom_score_adj 2>/dev/null || true
+    done
+
+    get_mem
+
+    if [[ "$LIMIT" =~ ^[0-9]+$ ]] && \
+       [ "$LIMIT" -gt 0 ] && \
+       [ "$LIMIT" -lt 100000000000 ] && \
+       [[ "$USED" =~ ^[0-9]+$ ]]; then
+
+        pct=$((USED * 100 / LIMIT))
+        now=$(date +%s)
+
+        if [ "$pct" -ge 90 ] && [ $((now - last)) -ge 10 ]; then
+            victim=$(ps -eo pid=,rss=,args= | \
+                awk '/-contentproc/ && / tab$/ {print $2, $1}' | \
+                sort -nr | head -1 | awk '{print $2}')
+
+            if [ -n "$victim" ]; then
+                kill -9 "$victim" 2>/dev/null || true
+                last=$now
+                echo "[mem-guard] memory ${pct}% - tab process $victim killed"
+            fi
+        fi
+    fi
+
+    sleep 3
 done
 SH
 
 chmod +x /usr/local/bin/firefox /usr/local/bin/mem-guard.sh
 EOF
 
-# ---- Windows 11 look: theme + icons (repo URLs build se pehle ek baar check kar lena) ---- #
-RUN git clone --depth=1 https://github.com/B00merang-Project/Windows-10 /usr/share/themes/Windows-10 && \
-    git clone --depth=1 https://github.com/yeyushengfan258/Win11-icon-theme /tmp/win11-icons && \
+# ---- Windows theme and icons ----
+RUN git clone --depth=1 https://github.com/B00merang-Project/Windows-10 \
+    /usr/share/themes/Windows-10 && \
+    git clone --depth=1 https://github.com/yeyushengfan258/Win11-icon-theme \
+    /tmp/win11-icons && \
     /tmp/win11-icons/install.sh -d /usr/share/icons && \
     rm -rf /tmp/win11-icons /usr/share/themes/Windows-10/.git
 
-# ---- XFCE config: theme, icons, font, cursor, window buttons, taskbar ---- #
+# ---- Permanent Umesh Editz Wallpaper ----
+COPY ["Umesh Editz Crowned Channel Logo.png", "/usr/share/backgrounds/umesheditz-wallpaper.png"]
+
+RUN cat > /usr/local/bin/set-wallpaper.sh <<'SH'
+#!/bin/bash
+
+WALL="/usr/share/backgrounds/umesheditz-wallpaper.png"
+
+# Wait for XFCE desktop
+for i in $(seq 1 30); do
+    if pgrep -x xfdesktop >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+done
+
+# Apply wallpaper to all detected monitors/workspaces
+PROPS=$(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$' || true)
+
+if [ -n "$PROPS" ]; then
+    while IFS= read -r prop; do
+        base="${prop%/last-image}"
+
+        xfconf-query -c xfce4-desktop \
+            -p "$prop" -s "$WALL"
+
+        xfconf-query -c xfce4-desktop \
+            -p "$base/image-style" --create -t int -s 5
+    done <<< "$PROPS"
+else
+    # Default XFCE Xorg monitor
+    xfconf-query -c xfce4-desktop \
+        -p /backdrop/screen0/monitor0/workspace0/last-image \
+        --create -t string -s "$WALL"
+
+    xfconf-query -c xfce4-desktop \
+        -p /backdrop/screen0/monitor0/workspace0/image-style \
+        --create -t int -s 5
+fi
+
+xfdesktop --reload 2>/dev/null || true
+SH
+
+RUN chmod +x /usr/local/bin/set-wallpaper.sh
+
+# ---- XFCE configuration ----
 RUN <<'EOF'
 set -e
+
 CFG=/home/ubuntu/.config/xfce4
 XML=$CFG/xfconf/xfce-perchannel-xml
-mkdir -p "$XML" "$CFG/panel/launcher-2" "$CFG/panel/launcher-3" "$CFG/panel/launcher-4"
 
-# Theme / icons / font / cursor
+mkdir -p "$XML" \
+    "$CFG/panel/launcher-2" \
+    "$CFG/panel/launcher-3" \
+    "$CFG/panel/launcher-4"
+
+# Theme, icons, font and cursor
 cat > "$XML/xsettings.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xsettings" version="1.0">
@@ -245,7 +319,7 @@ cat > "$XML/xsettings.xml" <<'XML'
 </channel>
 XML
 
-# Window manager: compositing OFF (lag aur RAM dono bachte hain), buttons right side, title left
+# Window manager
 cat > "$XML/xfwm4.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfwm4" version="1.0">
@@ -258,7 +332,7 @@ cat > "$XML/xfwm4.xml" <<'XML'
 </channel>
 XML
 
-# Taskbar: bottom, 44px, Start + Files + Firefox + Terminal + running apps + tray + clock
+# Windows-style bottom taskbar
 cat > "$XML/xfce4-panel.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-panel" version="1.0">
@@ -283,16 +357,23 @@ cat > "$XML/xfce4-panel.xml" <<'XML'
       </property>
     </property>
   </property>
+
   <property name="plugins" type="empty">
     <property name="plugin-1" type="string" value="whiskermenu"/>
     <property name="plugin-2" type="string" value="launcher">
-      <property name="items" type="array"><value type="string" value="thunar.desktop"/></property>
+      <property name="items" type="array">
+        <value type="string" value="thunar.desktop"/>
+      </property>
     </property>
     <property name="plugin-3" type="string" value="launcher">
-      <property name="items" type="array"><value type="string" value="firefox.desktop"/></property>
+      <property name="items" type="array">
+        <value type="string" value="firefox.desktop"/>
+      </property>
     </property>
     <property name="plugin-4" type="string" value="launcher">
-      <property name="items" type="array"><value type="string" value="xfce4-terminal.desktop"/></property>
+      <property name="items" type="array">
+        <value type="string" value="xfce4-terminal.desktop"/>
+      </property>
     </property>
     <property name="plugin-5" type="string" value="tasklist">
       <property name="grouping" type="uint" value="0"/>
@@ -312,27 +393,31 @@ cat > "$XML/xfce4-panel.xml" <<'XML'
 </channel>
 XML
 
-# Launcher .desktop files
-cp /usr/share/applications/thunar.desktop         "$CFG/panel/launcher-2/"
-cp /usr/share/applications/firefox.desktop        "$CFG/panel/launcher-3/"
+# Launcher files
+cp /usr/share/applications/thunar.desktop "$CFG/panel/launcher-2/"
+cp /usr/share/applications/firefox.desktop "$CFG/panel/launcher-3/"
 cp /usr/share/applications/xfce4-terminal.desktop "$CFG/panel/launcher-4/"
 
-# Whisker menu = Start button
-printf 'button-icon=start-here\nshow-button-title=false\n' > "$CFG/panel/whiskermenu-1.rc"
+# Start menu
+printf 'button-icon=start-here\nshow-button-title=false\n' \
+    > "$CFG/panel/whiskermenu-1.rc"
 
-# xrdp session scripts (Xorg ke liye)
-# MALLOC_ARENA_MAX=2: glibc ki memory fragmentation kam; cache /tmp mein taaki chhota volume na bhare
-printf 'export XDG_CURRENT_DESKTOP=XFCE\nexport XDG_SESSION_DESKTOP=xfce\nexport MALLOC_ARENA_MAX=2\nexport XDG_CACHE_HOME=/tmp/.cache\n' > /home/ubuntu/.xsessionrc
-printf 'unset DBUS_SESSION_BUS_ADDRESS\nunset XDG_RUNTIME_DIR\nexec startxfce4\n' > /home/ubuntu/.xsession
+# Xsession
+printf 'export XDG_CURRENT_DESKTOP=XFCE\nexport XDG_SESSION_DESKTOP=xfce\nexport MALLOC_ARENA_MAX=2\nexport XDG_CACHE_HOME=/tmp/.cache\n' \
+    > /home/ubuntu/.xsessionrc
+
+printf 'unset DBUS_SESSION_BUS_ADDRESS\nunset XDG_RUNTIME_DIR\nexec startxfce4\n' \
+    > /home/ubuntu/.xsession
+
 chmod +x /home/ubuntu/.xsession
 
 chown -R ubuntu:ubuntu /home/ubuntu
 
-# Volume /home/ubuntu par mount hua to ye configs chhup jayenge, isliye default copy rakhi hai.
-# start.sh pehli baar ise volume mein copy kar deta hai.
+# Save default home configuration
 cp -a /home/ubuntu /opt/ubuntu-home-defaults
 EOF
 
+# ---- Copy startup script ----
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
