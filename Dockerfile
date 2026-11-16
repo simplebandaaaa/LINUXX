@@ -1,5 +1,6 @@
 
 # syntax=docker/dockerfile:1
+
 FROM ubuntu:24.04
 
 ARG WITH_WINE=1
@@ -12,12 +13,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # ---- Firefox Mozilla PPA ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common gnupg2 ca-certificates && \
+    software-properties-common \
+    gnupg2 \
+    ca-certificates && \
     add-apt-repository -y ppa:mozillateam/ppa && \
     printf 'Package: firefox*\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' \
     > /etc/apt/preferences.d/mozilla-firefox
 
-# ---- XFCE Desktop + XRDP ----
+# ---- XFCE Desktop Packages ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xrdp \
     xorgxrdp \
@@ -65,7 +68,7 @@ RUN usermod -aG sudo ubuntu && \
 RUN printf 'allowed_users=anybody\nneeds_root_rights=no\n' \
     > /etc/X11/Xwrapper.config
 
-# ---- XRDP Optimization ----
+# ---- XRDP Configuration ----
 RUN sed -i 's/^max_bpp=.*/max_bpp=16/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^#tcp_send_buffer_size=.*/tcp_send_buffer_size=131072/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^MaxSessions=.*/MaxSessions=2/' /etc/xrdp/sesman.ini && \
@@ -73,7 +76,7 @@ RUN sed -i 's/^max_bpp=.*/max_bpp=16/' /etc/xrdp/xrdp.ini && \
     sed -i 's/^DisconnectedTimeLimit=.*/DisconnectedTimeLimit=300/' /etc/xrdp/sesman.ini && \
     adduser xrdp ssl-cert
 
-# ---- Remove Unnecessary Autostart Apps ----
+# ---- Disable Unnecessary Autostart Apps ----
 RUN rm -f /etc/xdg/autostart/*print* \
     /etc/xdg/autostart/*blueman* \
     /etc/xdg/autostart/*screensaver* \
@@ -86,12 +89,18 @@ RUN rm -f /etc/xdg/autostart/*print* \
     /etc/xdg/autostart/*xfce4-clipman* || true
 
 # ---- Firefox Optimization ----
-RUN mkdir -p /usr/lib/firefox/browser/defaults/preferences && \
-    cat > /usr/lib/firefox/browser/defaults/preferences/lean.js <<'JS'
+RUN <<'EOF'
+set -e
+
+mkdir -p /usr/lib/firefox/browser/defaults/preferences
+
+cat > /usr/lib/firefox/browser/defaults/preferences/lean.js <<'JS'
 pref("browser.preferences.defaultPerformanceSettings.enabled", false);
 pref("dom.ipc.processCount", 1);
 pref("dom.ipc.processCount.webIsolated", 1);
 pref("dom.ipc.processPrelaunch.fission.number", 0);
+pref("browser.tabs.remote.separatePrivilegedContentProcess", false);
+pref("browser.tabs.remote.separatePrivilegedMozillaWebContentProcess", false);
 pref("media.rdd-process.enabled", false);
 pref("media.utility-process.enabled", false);
 pref("layers.gpu-process.enabled", false);
@@ -119,6 +128,7 @@ pref("browser.sessionstore.restore_pinned_tabs_on_demand", true);
 pref("browser.sessionstore.interval", 15000);
 pref("browser.sessionstore.max_tabs_undo", 3);
 pref("browser.sessionstore.max_windows_undo", 1);
+pref("browser.tabs.warnOnClose", false);
 
 pref("layout.frame_rate", 30);
 pref("general.smoothScroll", false);
@@ -129,6 +139,8 @@ pref("ui.prefersReducedMotion", 1);
 
 pref("browser.startup.homepage", "about:blank");
 pref("browser.newtabpage.enabled", false);
+pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
+pref("browser.newtabpage.activity-stream.feeds.topsites", false);
 pref("browser.discovery.enabled", false);
 pref("app.update.auto", false);
 pref("app.normandy.enabled", false);
@@ -142,10 +154,11 @@ pref("network.dns.disablePrefetch", true);
 pref("network.predictor.enabled", false);
 JS
 
-# ---- Firefox Crash Recovery Wrapper ----
-RUN cat > /usr/local/bin/firefox <<'SH'
+# Firefox crash recovery wrapper
+cat > /usr/local/bin/firefox <<'SH'
 #!/bin/bash
 export MOZ_DISABLE_CONTENT_SANDBOX=1
+
 FF=/usr/bin/firefox
 tries=0
 t0=$(date +%s)
@@ -157,6 +170,7 @@ while true; do
     [ "$rc" -eq 0 ] && exit 0
 
     now=$(date +%s)
+
     if [ $((now-t0)) -gt 300 ]; then
         tries=0
         t0=$now
@@ -170,8 +184,12 @@ while true; do
 done
 SH
 
+chmod +x /usr/local/bin/firefox
+EOF
+
 # ---- RAM Memory Guard ----
-RUN cat > /usr/local/bin/mem-guard.sh <<'SH'
+RUN <<'EOF'
+cat > /usr/local/bin/mem-guard.sh <<'SH'
 #!/bin/bash
 
 last=0
@@ -190,7 +208,8 @@ while true; do
 
     if [[ "$LIMIT" =~ ^[0-9]+$ ]] && \
        [[ "$USED" =~ ^[0-9]+$ ]] && \
-       [ "$LIMIT" -gt 0 ] && [ "$LIMIT" -lt 100000000000 ]; then
+       [ "$LIMIT" -gt 0 ] && \
+       [ "$LIMIT" -lt 100000000000 ]; then
 
         pct=$((USED*100/LIMIT))
         now=$(date +%s)
@@ -216,7 +235,8 @@ while true; do
 done
 SH
 
-RUN chmod +x /usr/local/bin/firefox /usr/local/bin/mem-guard.sh
+chmod +x /usr/local/bin/mem-guard.sh
+EOF
 
 # ---- Windows 11 Theme and Icons ----
 RUN git clone --depth=1 \
@@ -228,53 +248,75 @@ RUN git clone --depth=1 \
     /tmp/win11-icons/install.sh -d /usr/share/icons && \
     rm -rf /tmp/win11-icons /usr/share/themes/Windows-10/.git
 
-# ---- Permanent Umesh Editz Wallpaper ----
+# ---- Umesh Editz Permanent Wallpaper ----
 RUN mkdir -p /usr/share/backgrounds
 
 COPY ["Umesh Editz Crowned Channel Logo.png", "/usr/share/backgrounds/umesheditz-wallpaper.png"]
 
-RUN cat > /usr/local/bin/set-wallpaper.sh <<'SH'
+# ---- Wallpaper Apply Script ----
+RUN <<'EOF'
+cat > /usr/local/bin/set-wallpaper.sh <<'SH'
 #!/bin/bash
 
 WALL="/usr/share/backgrounds/umesheditz-wallpaper.png"
+LOG="/tmp/wallpaper.log"
+
+echo "Starting Umesh Editz wallpaper setup" > "$LOG"
+
+if [ ! -f "$WALL" ]; then
+    echo "ERROR: Wallpaper image missing" >> "$LOG"
+    exit 1
+fi
 
 # Wait for XFCE desktop
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
     if pgrep -x xfdesktop >/dev/null 2>&1; then
         break
     fi
     sleep 2
 done
 
-# Apply wallpaper to available XFCE workspaces
+# Wait for xfconf
+for i in $(seq 1 30); do
+    if xfconf-query -c xfce4-desktop -l >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+done
+
+# Find all monitor/workspace wallpaper properties
 PROPS=$(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$' || true)
 
-if [ -n "$PROPS" ]; then
-    while IFS= read -r prop; do
-        base="${prop%/last-image}"
-
-        xfconf-query -c xfce4-desktop \
-            -p "$prop" -s "$WALL"
-
-        xfconf-query -c xfce4-desktop \
-            -p "$base/image-style" --create -t int -s 5
-    done <<< "$PROPS"
-else
-    xfconf-query -c xfce4-desktop \
-        -p /backdrop/screen0/monitor0/workspace0/last-image \
-        --create -t string -s "$WALL"
-
-    xfconf-query -c xfce4-desktop \
-        -p /backdrop/screen0/monitor0/workspace0/image-style \
-        --create -t int -s 5
+if [ -z "$PROPS" ]; then
+    PROPS="/backdrop/screen0/monitor0/workspace0/last-image"
 fi
 
-xfdesktop --reload 2>/dev/null || true
+while IFS= read -r prop; do
+    [ -z "$prop" ] && continue
+
+    BASE="${prop%/last-image}"
+
+    # Set wallpaper image
+    xfconf-query -c xfce4-desktop \
+        -p "$prop" --create -t string -s "$WALL" >> "$LOG" 2>&1
+
+    # 6 = Zoom / Fill screen
+    xfconf-query -c xfce4-desktop \
+        -p "$BASE/image-style" --create -t int -s 6 >> "$LOG" 2>&1
+
+    echo "Wallpaper applied: $prop" >> "$LOG"
+
+done <<< "$PROPS"
+
+xfdesktop --reload >> "$LOG" 2>&1 || true
+
+echo "Wallpaper setup completed" >> "$LOG"
 SH
 
-RUN chmod +x /usr/local/bin/set-wallpaper.sh
+chmod +x /usr/local/bin/set-wallpaper.sh
+EOF
 
-# ---- XFCE Desktop Configuration ----
+# ---- XFCE Configuration ----
 RUN <<'EOF'
 set -e
 
@@ -286,7 +328,7 @@ mkdir -p "$XML" \
     "$CFG/panel/launcher-3" \
     "$CFG/panel/launcher-4"
 
-# Theme and icons
+# Theme, icons and cursor
 cat > "$XML/xsettings.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xsettings" version="1.0">
@@ -319,7 +361,7 @@ cat > "$XML/xfwm4.xml" <<'XML'
 </channel>
 XML
 
-# Bottom taskbar
+# Windows-style bottom taskbar
 cat > "$XML/xfce4-panel.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-panel" version="1.0">
@@ -344,7 +386,6 @@ cat > "$XML/xfce4-panel.xml" <<'XML'
       </property>
     </property>
   </property>
-
   <property name="plugins" type="empty">
     <property name="plugin-1" type="string" value="whiskermenu"/>
     <property name="plugin-2" type="string" value="launcher">
@@ -385,6 +426,7 @@ cp /usr/share/applications/thunar.desktop "$CFG/panel/launcher-2/"
 cp /usr/share/applications/firefox.desktop "$CFG/panel/launcher-3/"
 cp /usr/share/applications/xfce4-terminal.desktop "$CFG/panel/launcher-4/"
 
+# Start menu
 printf 'button-icon=start-here\nshow-button-title=false\n' \
     > "$CFG/panel/whiskermenu-1.rc"
 
@@ -403,26 +445,27 @@ chown -R ubuntu:ubuntu /home/ubuntu
 cp -a /home/ubuntu /opt/ubuntu-home-defaults
 EOF
 
-# ---- Wallpaper autostart ----
+# ---- Global Wallpaper Autostart ----
 RUN mkdir -p /etc/xdg/autostart && \
     cat > /etc/xdg/autostart/umesheditz-wallpaper.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Umesh Editz Wallpaper
+Comment=Permanent Desktop Wallpaper
 Exec=/usr/local/bin/set-wallpaper.sh
-OnlyShowIn=XFCE;
 Terminal=false
-Hidden=false
+OnlyShowIn=XFCE;
+X-GNOME-Autostart-enabled=true
 EOF
 
-# ---- Startup Script ----
+# ---- Start Script ----
 COPY start.sh /start.sh
 
-# Fix CRLF and permissions
+# Fix Windows CRLF line endings
 RUN sed -i 's/\r$//' /start.sh && \
     chmod 755 /start.sh
 
 EXPOSE 3389
 
-# IMPORTANT: Run using Bash to prevent Exec format error
+# Execute using Bash
 CMD ["/bin/bash", "/start.sh"]
