@@ -1,15 +1,8 @@
 #!/bin/bash
 set -e
 
-# ---- Password: Railway Variables mein RDP_PASSWORD set karo ---- #
-if [ -z "${RDP_PASSWORD}" ]; then
-  RDP_PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)"
-  echo "=============================================================="
-  echo "RDP_PASSWORD set nahi tha. Is baar ka random password:"
-  echo "  user: ubuntu   password: ${RDP_PASSWORD}"
-  echo "Pakka password rakhne ke liye Railway Variables mein RDP_PASSWORD daalo."
-  echo "=============================================================="
-fi
+# ---- Password: Railway Variables mein RDP_PASSWORD set karoge to wahi chalega, warna ye default ---- #
+RDP_PASSWORD="${RDP_PASSWORD:-umeshedittz123}"
 echo "ubuntu:${RDP_PASSWORD}" | chpasswd
 
 # ---- Volume /home/ubuntu par mount ho to pehli baar defaults copy karo ---- #
@@ -20,6 +13,9 @@ chown ubuntu:ubuntu /home/ubuntu
 
 # ---- /dev/shm 256 MB (Firefox ke liye). Railway mein permission na mile to chup-chaap skip ---- #
 mount -t tmpfs -o size=256m tmpfs /dev/shm 2>/dev/null || true
+
+# ---- Memory guard (Firefox ko desktop se pehle qurbaan karta hai) ---- #
+/usr/local/bin/mem-guard.sh &
 
 # ---- Purane pid files hatao (restart pe xrdp start na hone ki problem) ---- #
 mkdir -p /run/xrdp /var/run/dbus
